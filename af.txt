@@ -164,3 +164,155 @@ for u_index = 1:length(u_values)
     ylabel('\Phi');
     grid on;
 end
+
+
+
+
+---1----\
+
+% Parameters
+L = 1;                              % Length of the domain
+Nx_values = [100, 200, 400];        % Different number of grid points for testing
+T = 3;                              % Total simulation time
+u_values = [0.25, 0.4, 0.5];        % Different velocity values
+times_to_plot = [0, 0.15, 0.45];    % Times at which we want to plot the solution
+
+% Loop over different number of grid points
+for Nx_index = 1:length(Nx_values)
+    Nx = Nx_values(Nx_index);
+    dx = L / Nx;                    % Grid spacing
+    x = linspace(0, L, Nx);         % Spatial grid
+    dt = 0.01;                      % Time step
+    Nt = ceil(T / dt);              % Number of time steps
+    
+    % Measure the speed of calculation
+    tic;
+    
+    % Loop over different velocity values
+    for u_index = 1:length(u_values)
+        u = u_values(u_index);
+        
+        % Stabilized discretization coefficient
+        c = u * dt / dx;
+        
+        % Check CFL condition
+        if c > 1
+            error('CFL condition violated: 0 <= c <= 1');
+        end
+        
+        % Initial condition (Gaussian wave with width 0.05)
+        sigma = 0.07; % Width of the Gaussian wave
+        initial_condition = exp(-((x-0.5*L).^2) / (2*sigma^2));
+        
+        % Precompute shift indices for periodic boundary conditions
+        prev_idx = [Nx, 1:(Nx-1)];
+        next_idx = [2:Nx, 1];
+        
+        % Initialize solution matrix
+        u_solution = zeros(Nx, Nt);
+        u_solution(:, 1) = initial_condition;
+        
+        % Time integration using vectorized operations
+        for n = 1:Nt-1
+            if u >= 0
+                u_solution(:, n+1) = u_solution(:, n) - c * (u_solution(:, n) - u_solution(prev_idx, n));
+            else
+                u_solution(:, n+1) = u_solution(:, n) - c * (u_solution(next_idx, n) - u_solution(:, n));
+            end
+        end
+        
+        % Plot solution for specific times
+        figure;
+        legends = {};
+        for t_index = 1:length(times_to_plot)
+            t_value = times_to_plot(t_index);
+            n = round(t_value / dt) + 1; % Calculate the time step
+            plot(x, u_solution(:, n));
+            hold on;
+            [~, peak_location] = max(u_solution(:, n));
+            legends{end+1} = sprintf('Time = %.2f s, Location = %d', t_value, peak_location);
+        end
+        hold off;
+        
+        title(sprintf('Solution for u = %.2f, Nx = %d, CFL = %.2f', u, Nx, c));
+        xlabel('x');
+        ylabel('\Phi');
+        grid on;
+        legend(legends, 'Location', 'best');
+        
+        % Determine wave exit time (estimate)
+        threshold = max(initial_condition) * 0.01;
+        exit_time = find(arrayfun(@(n) max(u_solution(:, n)) < threshold, 1:Nt), 1) * dt;
+        fprintf('Estimated wave exit time for u = %.2f, Nx = %d: %.2f s\n', u, Nx, exit_time);
+    end
+    
+    % End measurement of speed
+    computation_time = toc;
+    fprintf('Computation time for Nx = %d: %.2f s\n', Nx, computation_time);
+end
+
+
+
+-----------2/----
+
+% Parameters
+L = 1;               % Length of the domain
+Nx = 200;            % Number of grid points
+dx = L / Nx;         % Grid spacing
+x = linspace(0, L, Nx); % Spatial grid
+dt = 0.01;           % Time step
+T = 0.25;            % Total simulation time
+Nt = ceil(T / dt);   % Number of time steps
+u_values = [0.25, 0.4, 0.5]; % Different velocity values
+
+% Loop over different velocity values
+for u_index = 1:length(u_values)
+    u = u_values(u_index);
+    
+    % Stabilized discretization coefficient
+    c = u * dt / (2*dx); % Note the factor of 2, important for Crank-Nicolson
+    
+    % Initialize solution matrix
+    u_solution_CN = zeros(Nx, Nt);
+    
+    % Initial condition (Gaussian wave with width 0.07)
+    sigma = 0.07; % Width of the Gaussian wave
+    u_solution_CN(:, 1) = exp(-((x-0.5*L).^2) / (2*sigma^2));
+    
+    % Construct the A and B matrices for Crank-Nicolson scheme
+    A = sparse(Nx, Nx);
+    B = sparse(Nx, Nx);
+    for i = 2:Nx-1
+        A(i, i-1) = -c;
+        A(i, i) = 1;
+        A(i, i+1) = c;
+        
+        B(i, i-1) = c;
+        B(i, i) = 1;
+        B(i, i+1) = -c;
+    end
+    
+    % Boundary conditions (assuming periodic)
+    A(1, Nx) = -c; A(1, 1) = 1; A(1, 2) = c;
+    A(Nx, Nx-1) = -c; A(Nx, Nx) = 1; A(Nx, 1) = c;
+    
+    B(1, Nx) = c; B(1, 1) = 1; B(1, 2) = -c;
+    B(Nx, Nx-1) = c; B(Nx, Nx) = 1; B(Nx, 1) = -c;
+    
+    % Time stepping
+    for n = 1:Nt-1
+        u_solution_CN(:, n+1) = A \ (B * u_solution_CN(:, n));
+    end
+    
+    % Plot solution
+    figure;
+    for n = 1:10:Nt
+        plot(x, u_solution_CN(:, n));
+        hold on;
+    end
+    hold off;
+    title(['Crank-Nicolson Solution for u = ', num2str(u)]);
+    xlabel('x');
+    ylabel('\Phi');
+    grid on;
+end
